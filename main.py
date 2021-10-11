@@ -1,17 +1,67 @@
-import cv2
+import time
+import pandas
+from cv2 import cv2 as cv
+from datetime import datetime
 
-img = cv2.imread("galaxy.jpg", 0)
+first_frame = None
 
-print(type(img))
-print(img.shape)
-print(img.ndim)
+video = cv.VideoCapture(1)
+video.read()
+time.sleep(2.0)
 
-w = img.shape[0] / 2
-h = img.shape[1] / 2
+status_list = [None, None]
+times = []
+df = pandas.DataFrame(columns=["Start", "End"])
 
-resized = cv2.resize(img, (int(h),int(w)))
+while True:
+    check, frame = video.read()
 
-# cv2.imshow("Galaxy", resized)
-cv2.imwrite("Galaxy_resized.jpg", resized)
+    status = 0
 
-cv2.waitKey(0)
+    gray = cv.cvtColor(frame, cv.COLOR_BGR2GRAY)
+    gray = cv.GaussianBlur(gray, (21,21), 0)
+
+    if first_frame is None:
+        first_frame = gray
+        continue
+
+    delta_frame = cv.absdiff(first_frame, gray)
+
+    thresh_frame = cv.threshold(delta_frame, 30, 255, cv.THRESH_BINARY)[1]
+    thresh_frame = cv.dilate(thresh_frame, None, iterations=2)
+
+    (cnts,_) = cv.findContours(thresh_frame.copy(), cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)
+
+    for contour in cnts:
+        if cv.contourArea(contour) < 10000:
+            continue
+        status = 1
+        (x, y, w, h) = cv.boundingRect(contour)
+        cv.rectangle(frame, (x,y), (x+w,y+h), (0,255,0),3)
+
+    status_list.append(status)
+    if status_list[-1] == 1 and status_list[-2] ==0:
+        times.append(datetime.now())
+    if status_list[-1] == 0 and status_list[-2] == 1:
+        times.append(datetime.now())
+
+    cv.imshow("Gray Frame", gray)
+    cv.imshow("Delta Frame", delta_frame)
+    cv.imshow("Threshold Frame", thresh_frame)
+    cv.imshow("Colour Frame", frame)
+
+    key = cv.waitKey(1)
+
+    if key == ord('q'):
+        if status == 1:
+            times.append(datetime.now())
+        break
+print(times)
+
+for i in range(0, len(times), 2):
+    df = df.append({"Start":times[i], "End":times[i+1]}, ignore_index=True)
+
+df.to_csv("times.csv")
+
+video.release()
+cv.destroyAllWindows()
